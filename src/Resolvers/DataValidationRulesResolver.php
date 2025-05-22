@@ -200,22 +200,67 @@ class DataValidationRulesResolver
             shouldBePresent: true
         );
 
-        $dataRules->addCollection($propertyPath, Rule::forEach(function (mixed $value, mixed $attribute) use ($fullPayload, $dataProperty) {
-            if (! is_array($value)) {
-                return ['array'];
-            }
+        // Optimized path for collections with homogeneously typed items
+        $itemDataClass = $this->dataConfig->getDataClass($dataProperty->type->dataClass);
 
-            $rules = $this->execute(
-                $dataProperty->type->dataClass,
-                $fullPayload,
-                ValidationPath::create($attribute),
-                DataRules::create()
+        if ($itemDataClass->attributes->has(\Spatie\LaravelData\Attributes\HomogeneousCollectionItem::class)) {
+            // Create a validation context for a generic item within the collection.
+            // Payload is empty as rules should be generic for all items.
+            // Path uses '*' to denote a generic item.
+            $itemPath = ValidationPath::create($propertyPath->get() . '.*');
+            $itemValidationContext = new ValidationContext(
+                payload: [], // No specific item payload, rules are generic
+                fullPayload: $fullPayload,
+                path: $itemPath
             );
 
-            return collect($rules)->keyBy(
-                fn (mixed $rules, string $key) => Str::after($key, "{$attribute}.") // TODO: let's do this better
-            )->all();
-        }));
+            $temporaryItemRules = DataRules::create();
+
+            // Execute rule resolution once for the item type.
+            $this->execute(
+                $dataProperty->type->dataClass,
+                $fullPayload, // Pass full payload for context, though item payload is empty
+                $itemPath,
+                $temporaryItemRules
+            );
+
+            // Transform and add the item rules to the main ruleset, prefixing with the collection path.
+            foreach ($temporaryItemRules->rules as $fieldKey => $rulesForField) {
+                // The $fieldKey from $temporaryItemRules->rules is already relative to the item path (e.g. 'title')
+                // So we just need to prepend the collection property path.
+                // Example: if $propertyPath is 'songs' and $fieldKey is 'title', final path is 'songs.*.title'
+                // If $fieldKey is empty (e.g. for a root rule on the item itself), it becomes 'songs.*'
+                // However, $this->execute already prepends the path, so $fieldKey might be 'songs.*.title'
+                // We need to ensure the key is relative or correctly structured.
+
+                // $this->execute prepends the path. If itemPath is 'collection.*',
+                // rules in $temporaryItemRules will have keys like 'collection.*.property'.
+                // We need to add these directly.
+                $dataRules->add(ValidationPath::create($fieldKey), $rulesForField);
+            }
+        } else {
+            // Default behavior: validate each item individually if not marked as homogeneous.
+            $dataRules->addCollection($propertyPath, Rule::forEach(function (mixed $value, mixed $attribute) use ($fullPayload, $dataProperty) {
+                if (! is_array($value)) {
+                    return ['array'];
+                }
+
+                $rules = $this->execute(
+                    $dataProperty->type->dataClass,
+                    $fullPayload,
+                    ValidationPath::create($attribute),
+                    DataRules::create()
+                );
+
+                // The rules returned by ->execute() are already prefixed with the current item's path (e.g. collection.0.property)
+                // We need to make them relative to the item for Rule::forEach to work correctly.
+                // For example, if $attribute is 'songs.0' and a rule key is 'songs.0.title',
+                // it should become 'title'.
+                return collect($rules)->mapWithKeys(
+                    fn (mixed $fieldRules, string $key) => [Str::after($key, "{$attribute}.") => $fieldRules]
+                )->all();
+            }));
+        }
     }
 
     protected function resolveToplevelRules(

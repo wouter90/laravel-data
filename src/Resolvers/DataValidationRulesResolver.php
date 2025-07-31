@@ -97,7 +97,49 @@ class DataValidationRulesResolver
             $withoutValidationProperties
         );
 
+        $this->prohibitUnknownProperties(
+            $dataClass,
+            $fullPayload,
+            $path,
+            $dataRules
+        );
+
         return $dataRules->rules;
+    }
+
+    protected function prohibitUnknownProperties(
+        DataClass $class,
+        array $fullPayload,
+        ValidationPath $path,
+        DataRules $dataRules
+    ): void {
+        if (config('data.prohibit_unknown_properties', false) === false) {
+            return;
+        }
+
+        $payload = $path->isRoot()
+            ? $fullPayload
+            : Arr::get($fullPayload, $path->get());
+
+        if ($payload === null) {
+            return;
+        }
+
+        if (! is_array($payload)) {
+            $dataRules->add($path, 'prohibited');
+
+            return;
+        }
+
+        $allowed = $class->properties->map(
+            fn (DataProperty $property) => $property->inputMappedName ?? $property->name
+        )->all();
+
+        $unknown = array_diff(array_keys($payload), $allowed);
+
+        foreach ($unknown as $property) {
+            $dataRules->add($path->property($property), ['prohibited']);
+        }
     }
 
     protected function shouldSkipPropertyValidation(

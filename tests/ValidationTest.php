@@ -2732,3 +2732,38 @@ describe('property-morphable validation tests', function () {
             ]);
     });
 });
+
+it('can prohibit unknown properties', function () {
+    $dataClass = new class () extends Data {
+        public string $property;
+    };
+
+    config()->set('data.prohibit_unknown_properties', false);
+
+    DataValidationAsserter::for($dataClass)
+        ->assertOk(['property' => 'Hello World', 'unknown' => 'property']);
+
+    config()->set('data.prohibit_unknown_properties', true);
+
+    DataValidationAsserter::for($dataClass)
+        ->assertOk(['property' => 'Hello World'])
+        ->assertErrors(
+            ['property' => 'Hello World', 'unknown' => 'property'],
+            ['unknown' => [__('validation.prohibited', ['attribute' => 'unknown'])]]
+        );
+});
+
+it('can prohibit unknown properties in nested data objects', function () {
+    $dataClass = new class () extends Data {
+        public SimpleData $nested;
+    };
+
+    config()->set('data.prohibit_unknown_properties', true);
+
+    DataValidationAsserter::for($dataClass)
+        ->assertOk(['nested' => ['string' => 'Hello World']])
+        ->assertErrors(
+            ['nested' => ['string' => 'Hello World', 'unknown' => 'property']],
+            ['nested.unknown' => [__('validation.prohibited', ['attribute' => 'nested.unknown'])]]
+        );
+});

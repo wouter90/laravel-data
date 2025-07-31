@@ -127,6 +127,13 @@ return [
     'validation_strategy' => \Spatie\LaravelData\Support\Creation\ValidationStrategy::OnlyRequests->value,
 
     /*
+     * When creating a data object, it is possible to prohibit all properties that are not
+     * defined in the data object. This is especially useful when you want to be
+     * sure that no unknown properties are passed to the data object.
+     */
+    'prohibit_unknown_properties' => false,
+
+    /*
      * A data object can map the names of its properties when transforming (output) or when
      * creating (input). By default, the package will not map any names. You can set a
      * global strategy here, or override it on a specific data object.
